@@ -1,15 +1,13 @@
 'use strict';
 
 
-const Child = require('child_process');
-const Dns = require('dns');
-const EventEmitter = require('events');
-const Net = require('net');
-const Os = require('os');
-const Util = require('util');
+var Child = require('child_process');
+var Dns = require('dns');
+var Net = require('net');
+var Os = require('os');
 
 
-const internals = {};
+var internals = {};
 
 
 internals.isWin = /^win/.test(Os.platform());
@@ -18,68 +16,87 @@ internals.isWin = /^win/.test(Os.platform());
 module.exports = internals.Traceroute = {};
 
 
-internals.Traceroute.trace = function (host, callback) {
+internals.Traceroute.trace = function (host, timeout, callback) {
+    if (typeof(timeout) == "function") {
+        callback = timeout;
+        timeout = null;
+    }
 
-    const Emitter = function () {
-
-        EventEmitter.call(this);
-    };
-    Util.inherits(Emitter, EventEmitter);
-    const emitter = new Emitter();
-
-    Dns.lookup(host.toUpperCase(), (err) => {
+    Dns.lookup(host.toUpperCase(), function(err) {
 
         if (err && Net.isIP(host) === 0) {
             return callback(new Error('Invalid host'));
         }
 
-        const command = (internals.isWin ? 'tracert' : 'traceroute');
-        const args = internals.isWin ? ['-d', host] : ['-q', 1, '-n', host];
-        const traceroute = Child.spawn(command, args);
+        var command = (internals.isWin ? 'tracert -d ' : 'traceroute -q 1 -n ') + host;
 
-        const hops = [];
-        let counter = 0;
-        traceroute.stdout.on('data', (data) => {
+        // console.log("command", command);
 
-            ++counter;
-            if ((!internals.isWin && counter < 2) || (internals.isWin && counter < 5)) {
-                return null;
-            }
+        var exited = false, start = new Date();
 
-            const result = data.toString().replace(/\n$/,'');
-            if (!result) {
-                return null;
-            }
+        // var traceroute = Child.exec(command, function(err, stdout, stderr) {
+        //     exited = true;
+            
+        //     // console.log("err", err);
+        //     // console.log("stdout", stdout);
+        //     // console.log("stderr", stderr);
 
-            const hop = internals.parseHop(result);
-            hops.push(hop);
-            emitter.emit('hop', hop);
+        //     if (err) {
+        //         return callback(err);
+        //     }
+
+        //     var results = internals.parseOutput(stdout);
+
+        //     return callback(null, results);
+        // });
+
+        command = command.split(" ");
+
+        var traceroute = Child.spawn(command[0], command.slice(1));
+
+        var all_data = "";
+
+        traceroute.stdout.on("data", function(data) {
+            data = new Buffer(data) + "";
+            // console.log(host, "data", (data));
+
+            all_data += data;
         });
 
-        traceroute.on('close', (code) => {
+        traceroute.on("close", function(code) {
+            exited = true;
 
-            if (callback) {
-                callback(null, hops);
-            }
+            // console.log("all_data", all_data);
 
-            emitter.emit('done', hops);
+            // console.log("traceroute exited", code);
+
+            callback(null, internals.parseOutput(all_data));
         });
+
+        if (timeout) {
+            var timer_id = setInterval(function() {
+                clearInterval(timer_id);
+
+                if (!exited) {
+                    console.log("Timeout exceeded.  Killing traceroute to host", host);
+                    traceroute.kill();
+                }
+            }, timeout);            
+        }
     });
-    
-    return emitter;
 };
 
 
 internals.parseHop = function (hop) {
 
-    let line = hop.replace(/\*/g,'0');
+    var line = hop.replace(/\*/g,'0');
 
     if (internals.isWin) {
         line = line.replace(/\</g,'');
     }
 
-    const s = line.split(' ');
-    for (let i = s.length - 1; i > -1; --i) {
+    var s = line.split(' ');
+    for (var i = s.length - 1; i > -1; --i) {
         if (s[i] === '' || s[i] === 'ms') {
             s.splice(i,1);
         }
@@ -95,7 +112,7 @@ internals.parseHopWin = function (line) {
         return false;
     }
 
-    const hop = {};
+    var hop = {};
     hop[line[4]] = [+line[1], +line[2], +line[3]];
 
     return hop;
@@ -108,12 +125,12 @@ internals.parseHopNix = function (line) {
         return false;
     }
 
-    const hop = {};
-    let lastip = line[1];
+    var hop = {};
+    var lastip = line[1];
 
     hop[line[1]] = [+line[2]];
 
-    for (let i = 3; i < line.length; ++i) {
+    for (var i = 3; i < line.length; ++i) {
         if (Net.isIP(line[i])) {
             lastip = line[i];
             if (!hop[lastip]) {
@@ -126,4 +143,30 @@ internals.parseHopNix = function (line) {
     }
 
     return hop;
+};
+
+internals.parseOutput = function (output) {
+
+    var lines = output.split('\n');
+    var hops = [];
+
+    // lines.shift();
+    lines.pop();
+
+    if (internals.isWin) {
+        for (var i = 0; i < lines.length; ++i) {
+            if (/^\s+1/.test(lines[i])) {
+                break;
+            }
+        }
+        lines.splice(0,i);
+        lines.pop();
+        lines.pop();
+    }
+
+    for (var i = 0; i < lines.length; ++i) {
+        hops.push(internals.parseHop(lines[i]));
+    }
+
+    return hops;
 };
