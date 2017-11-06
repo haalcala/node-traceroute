@@ -8,7 +8,7 @@
     "url": "git://github.com/jaw187/node-traceroute.git"
   },
   "engines": {
-    "node": ">=4.0.0"
+    "node": ">=0.10.0"
   },
   "devDependencies": {
     "code": "2.x.x",
