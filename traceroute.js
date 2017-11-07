@@ -57,10 +57,14 @@ internals.Traceroute.trace = function (host, timeout, callback) {
         var all_data = "";
 
         traceroute.stdout.on("data", function(data) {
-            data = new Buffer(data) + "";
+            var _data = (new Buffer(data) + "").trim();
             // console.log(host, "data", (data));
 
-            all_data += data;
+            if (!data) {
+                return;
+            }
+
+            all_data += _data;
         });
 
         traceroute.on("close", function(code) {
