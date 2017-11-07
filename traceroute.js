@@ -58,13 +58,13 @@ internals.Traceroute.trace = function (host, timeout, callback) {
 
         traceroute.stdout.on("data", function(data) {
             var _data = (new Buffer(data) + "").trim();
-            // console.log(host, "data", (data));
+            // console.log(host, "data", _data);
 
             if (!data) {
                 return;
             }
 
-            all_data += _data;
+            all_data += (all_data ? "\n" : "") + _data;
         });
 
         traceroute.on("close", function(code) {
@@ -101,12 +101,20 @@ internals.parseHop = function (hop) {
 
     var s = line.split(' ');
     for (var i = s.length - 1; i > -1; --i) {
-        if (s[i] === '' || s[i] === 'ms') {
+        // console.log("s[" + i + "]", s[i])
+
+        if (s[i] === '' || s[i] === 'ms' || !(/[0-9\.]/g.test(s[i]))) {
             s.splice(i,1);
         }
     }
 
-    return internals.isWin ? internals.parseHopWin(s) : internals.parseHopNix(s);
+    // console.log("s", s);
+
+    var ret = internals.isWin ? internals.parseHopWin(s) : internals.parseHopNix(s);
+
+    // console.log("ret", ret);
+
+    return ret;
 };
 
 
@@ -124,8 +132,9 @@ internals.parseHopWin = function (line) {
 
 
 internals.parseHopNix = function (line) {
+    // console.log("aaaa line", line)
 
-    if (line[1] === '0') {
+    if (line[0] == 0) {
         return false;
     }
 
@@ -135,6 +144,8 @@ internals.parseHopNix = function (line) {
     hop[line[1]] = [+line[2]];
 
     for (var i = 3; i < line.length; ++i) {
+        // console.log("line[" + i + "]", line[i]);
+
         if (Net.isIP(line[i])) {
             lastip = line[i];
             if (!hop[lastip]) {
@@ -154,8 +165,10 @@ internals.parseOutput = function (output) {
     var lines = output.split('\n');
     var hops = [];
 
-    // lines.shift();
-    lines.pop();
+    // console.log("1111 lines", lines);
+
+    lines.shift();
+    // lines.pop();
 
     if (internals.isWin) {
         for (var i = 0; i < lines.length; ++i) {
@@ -167,6 +180,8 @@ internals.parseOutput = function (output) {
         lines.pop();
         lines.pop();
     }
+
+    // console.log("2222 lines", lines);
 
     for (var i = 0; i < lines.length; ++i) {
         hops.push(internals.parseHop(lines[i]));
